@@ -1,119 +1,106 @@
 <?php
-session_start();
-require_once "includes/db.php";
+require_once __DIR__ . '/includes/db.php';
 
-if (isset($_SESSION["user_id"])) {
-    header("Location: index.php");
+if (isset($_SESSION['user_id'])) {
+    header('Location: ' . url('index.php'));
     exit;
 }
 
-$error = "";
-$success = "";
+$error = '';
 
-if ($_SERVER["REQUEST_METHOD"] === "POST") {
-    $full_name = trim($_POST["full_name"] ?? "");
-    $email = trim($_POST["email"] ?? "");
-    $password = $_POST["password"] ?? "";
-    $confirm_password = $_POST["confirm_password"] ?? "";
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $full_name        = trim($_POST['full_name'] ?? '');
+    $email            = trim($_POST['email'] ?? '');
+    $password         = $_POST['password'] ?? '';
+    $confirm_password = $_POST['confirm_password'] ?? '';
 
-    if ($full_name === "" || $email === "" || $password === "" || $confirm_password === "") {
-        $error = "Vui lòng nhập đầy đủ thông tin.";
+    // Kiểm tra CSRF
+    if (!csrf_verify()) {
+        $error = 'Phiên làm việc không hợp lệ, vui lòng thử lại.';
+    } elseif ($full_name === '' || $email === '' || $password === '' || $confirm_password === '') {
+        $error = 'Vui lòng nhập đầy đủ thông tin.';
+    } elseif (mb_strlen($full_name) > 100) {
+        $error = 'Họ tên không được vượt quá 100 ký tự.';
+    } elseif (mb_strlen($email) > 150) {
+        $error = 'Email không hợp lệ.';
     } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-        $error = "Email không hợp lệ.";
-    } elseif (strlen($password) < 6) {
-        $error = "Mật khẩu phải có ít nhất 6 ký tự.";
+        $error = 'Email không hợp lệ.';
+    } elseif (mb_strlen($password) < 6 || mb_strlen($password) > 72) {
+        $error = 'Mật khẩu phải có từ 6 đến 72 ký tự.';
     } elseif ($password !== $confirm_password) {
-        $error = "Mật khẩu xác nhận không khớp.";
+        $error = 'Mật khẩu xác nhận không khớp.';
     } else {
         $stmt = $pdo->prepare("SELECT id FROM users WHERE email = ? LIMIT 1");
         $stmt->execute([$email]);
 
         if ($stmt->fetch()) {
-            $error = "Email này đã được đăng ký.";
+            $error = 'Email này đã được đăng ký.';
         } else {
             $password_hash = password_hash($password, PASSWORD_DEFAULT);
 
             $stmt = $pdo->prepare("INSERT INTO users (full_name, email, password, role, balance) VALUES (?, ?, ?, 'student', 0)");
             $stmt->execute([$full_name, $email, $password_hash]);
 
-            header("Location: login.php?registered=1");
+            header('Location: ' . url('login.php?registered=1'));
             exit;
         }
     }
 }
+
+$pageTitle = 'Đăng ký';
+require_once __DIR__ . '/includes/head.php';
+require_once __DIR__ . '/includes/header.php';
 ?>
-<!DOCTYPE html>
-<html lang="vi">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Đăng ký - Secure Course</title>
-    <link rel="stylesheet" href="assets/css/style.css">
-</head>
-<body>
 
-<header class="site-header">
-    <div class="header-container">
-        <a href="index.php" class="logo">Secure Course</a>
-        <nav class="main-nav">
-            <a href="index.php">Trang chủ</a>
-            <a href="courses.php">Khóa học</a>
-            <a href="login.php">Đăng nhập</a>
-        </nav>
-    </div>
-</header>
+<div class="auth-page">
+    <div class="auth-box">
 
-<main class="auth-page">
-    <div class="auth-container">
-        <div class="auth-card">
-            <div class="auth-icon"></div>
-            <h1>Tạo tài khoản</h1>
-            <p class="auth-description">Đăng ký để bắt đầu học tập.</p>
+        <div class="auth-badge"><i class="fa-solid fa-user-plus"></i></div>
+        <div class="auth-eyebrow">Tạo tài khoản mới</div>
+        <h1 class="auth-title">Đăng ký tài khoản</h1>
+        <p class="auth-subtitle">Bắt đầu hành trình học tập chỉ với vài thao tác.</p>
 
-            <?php if ($error !== ""): ?>
-                <div class="alert alert-error">
-                    <?= htmlspecialchars($error) ?>
-                </div>
-            <?php endif; ?>
+        <?php if ($error !== ''): ?>
+            <div class="alert alert-error"><i class="fa-solid fa-circle-exclamation"></i> <?= e($error) ?></div>
+        <?php endif; ?>
 
-            <?php if ($success !== ""): ?>
-                <div class="alert alert-success">
-                    <?= htmlspecialchars($success) ?>
-                </div>
-                <br>
-                <a href="login.php" class="auth-button">Đăng nhập ngay</a>
-            <?php else: ?>
-                <form method="POST">
-                    <div class="form-group">
-                        <label>Họ và tên</label>
-                        <input type="text" name="full_name" placeholder="Nguyễn Văn A" required>
-                    </div>
+        <form method="post">
+            <?= csrf_field() ?>
 
-                    <div class="form-group">
-                        <label>Email</label>
-                        <input type="email" name="email" placeholder="example@gmail.com" required>
-                    </div>
-
-                    <div class="form-group">
-                        <label>Mật khẩu</label>
-                        <input type="password" name="password" placeholder="Ít nhất 6 ký tự" required>
-                    </div>
-
-                    <div class="form-group">
-                        <label>Nhập lại mật khẩu</label>
-                        <input type="password" name="confirm_password" required>
-                    </div>
-
-                    <button type="submit" class="auth-button">Đăng ký</button>
-                </form>
-            <?php endif; ?>
-
-            <div class="auth-footer">
-                Đã có tài khoản? <a href="login.php">Đăng nhập</a>
+            <div class="form-group">
+                <label for="regName">Họ và tên</label>
+                <input type="text" id="regName" name="full_name" class="form-control" placeholder="Nguyễn Văn A" maxlength="100" required autofocus>
             </div>
-        </div>
-    </div>
-</main>
 
-</body>
-</html>
+            <div class="form-group">
+                <label for="regEmail">Email</label>
+                <input type="email" id="regEmail" name="email" class="form-control" placeholder="example@gmail.com" maxlength="150" required>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="regPass">Mật khẩu</label>
+                    <input type="password" id="regPass" name="password" class="form-control" placeholder="Ít nhất 6 ký tự" maxlength="72" required>
+                </div>
+                <div class="form-group">
+                    <label for="regConfirm">Nhập lại mật khẩu</label>
+                    <input type="password" id="regConfirm" name="confirm_password" class="form-control" placeholder="Nhập lại mật khẩu" maxlength="72" required>
+                </div>
+            </div>
+
+            <label class="form-check">
+                <input type="checkbox" required>
+                Tôi đồng ý với <a href="#" style="color:var(--accent-dark);font-weight:700;">điều khoản sử dụng</a>
+            </label>
+
+            <button type="submit" class="btn btn-accent btn-block btn-lg">Đăng ký</button>
+        </form>
+
+        <div class="auth-footer">
+            Đã có tài khoản? <a href="<?= url('login.php') ?>" style="color:var(--accent-dark);">Đăng nhập</a>
+        </div>
+
+    </div>
+</div>
+
+<?php require_once __DIR__ . '/includes/footer.php'; ?>

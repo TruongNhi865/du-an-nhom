@@ -1,102 +1,133 @@
 <?php
-session_start();
-require_once "includes/db.php";
+require_once __DIR__ . '/includes/db.php';
 
-if (isset($_SESSION["user_id"])) {
-    header("Location: index.php");
+if (isset($_SESSION['user_id'])) {
+    header('Location: ' . url('index.php'));
     exit;
 }
 
-$error = "";
+$error = '';
+$redirect = trim($_GET['redirect'] ?? '');
 
-if ($_SERVER["REQUEST_METHOD"] === "POST") {
-    $email = trim($_POST["email"] ?? "");
-    $password = $_POST["password"] ?? "";
+// Ngăn open redirect: chỉ cho phép đường dẫn nội bộ (không chứa http://, //)
+if ($redirect === '' || str_starts_with($redirect, 'http') || str_starts_with($redirect, '//')) {
+    $redirect = '';
+}
 
-    if ($email === "" || $password === "") {
-        $error = "Vui lòng nhập email và mật khẩu.";
+// ---- Chống brute-force: giới hạn số lần đăng nhập sai ----
+$maxAttempts = 5;          // tối đa 5 lần sai
+$lockoutTime = 900;        // khóa 15 phút
+$now         = time();
+$failedCount = (int)($_SESSION['login_failed'] ?? 0);
+$lockedUntil = (int)($_SESSION['login_locked_until'] ?? 0);
+$locked      = false;
+
+if ($failedCount >= $maxAttempts && $now < $lockedUntil) {
+    $locked = true;
+    $error  = 'Quá nhiều lần đăng nhập thất bại. Vui lòng thử lại sau '
+            . (int)ceil(($lockedUntil - $now) / 60) . ' phút.';
+} elseif ($failedCount >= $maxAttempts && $now >= $lockedUntil) {
+    // Hết thời gian khóa -> reset bộ đếm
+    $_SESSION['login_failed'] = 0;
+    unset($_SESSION['login_locked_until']);
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$locked) {
+    if (!csrf_verify()) {
+        $error = 'Phiên làm việc không hợp lệ, vui lòng thử lại.';
     } else {
-        $stmt = $pdo->prepare("SELECT id, full_name, email, password, role, balance FROM users WHERE email = ? LIMIT 1");
-        $stmt->execute([$email]);
-        $user = $stmt->fetch();
+        $email    = trim($_POST['email'] ?? '');
+        $password = $_POST['password'] ?? '';
 
-        if ($user && password_verify($password, $user["password"])) {
-            session_regenerate_id(true);
-
-            $_SESSION["user_id"] = $user["id"];
-            $_SESSION["full_name"] = $user["full_name"];
-            $_SESSION["email"] = $user["email"];
-            $_SESSION["role"] = $user["role"];
-            $_SESSION["balance"] = $user["balance"];
-
-            header("Location: index.php");
-            exit;
+        if ($email === '' || $password === '') {
+            $error = 'Vui lòng nhập email và mật khẩu.';
         } else {
-            $error = "Email hoặc mật khẩu không đúng.";
+            $stmt = $pdo->prepare("SELECT id, full_name, email, password, role, balance FROM users WHERE email = ? LIMIT 1");
+            $stmt->execute([$email]);
+            $user = $stmt->fetch();
+
+            if ($user && password_verify($password, $user['password'])) {
+                // Đăng nhập thành công -> xóa bộ đếm thất bại
+                $_SESSION['login_failed'] = 0;
+                unset($_SESSION['login_locked_until']);
+
+                session_regenerate_id(true);
+
+                $_SESSION['user_id']    = (int)$user['id'];
+                $_SESSION['user_name']  = $user['full_name'];
+                $_SESSION['full_name']  = $user['full_name'];
+                $_SESSION['email']      = $user['email'];
+                $_SESSION['role']       = $user['role'];
+                $_SESSION['balance']    = $user['balance'];
+
+                if ($redirect !== '') {
+                    header('Location: ' . url($redirect));
+                } else {
+                    header('Location: ' . url('index.php'));
+                }
+                exit;
+            } else {
+                // Đếm lỗi thất bại
+                $_SESSION['login_failed'] = $failedCount + 1;
+                if ($_SESSION['login_failed'] >= $maxAttempts) {
+                    $_SESSION['login_locked_until'] = $now + $lockoutTime;
+                    $error = 'Quá nhiều lần đăng nhập thất bại. Tài khoản bị khóa trong ' . (int)($lockoutTime / 60) . ' phút.';
+                } else {
+                    $error = 'Email hoặc mật khẩu không đúng.';
+                }
+            }
         }
     }
 }
+
+$pageTitle = 'Đăng nhập';
+require_once __DIR__ . '/includes/head.php';
+require_once __DIR__ . '/includes/header.php';
 ?>
-<!DOCTYPE html>
-<html lang="vi">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Đăng nhập - Secure Course</title>
-    <link rel="stylesheet" href="assets/css/style.css">
-</head>
-<body>
 
-<header class="site-header">
-    <div class="header-container">
-        <a href="index.php" class="logo">Secure Course</a>
-        <nav class="main-nav">
-            <a href="index.php">Trang chủ</a>
-            <a href="courses.php">Khóa học</a>
-            <a href="register.php">Đăng ký</a>
-        </nav>
-    </div>
-</header>
+<div class="auth-page">
+    <div class="auth-box">
 
-<main class="auth-page">
-    <div class="auth-container">
-        <div class="auth-card">
-            <div class="auth-icon"></div>
-            <h1>Đăng nhập</h1>
-            <p class="auth-description">Chào mừng bạn quay trở lại.</p>
+        <div class="auth-badge"><i class="fa-solid fa-right-to-bracket"></i></div>
+        <div class="auth-eyebrow">Chào mừng bạn trở lại</div>
+        <h1 class="auth-title">Đăng nhập tài khoản</h1>
+        <p class="auth-subtitle">Nhập thông tin để tiếp tục hành trình học tập.</p>
 
-            <?php if (isset($_GET["registered"])): ?>
-                <div class="alert alert-success">
-                    Đăng ký thành công. Hãy đăng nhập.
-                </div>
-            <?php endif; ?>
+        <?php if (isset($_GET['registered'])): ?>
+            <div class="alert alert-success"><i class="fa-solid fa-circle-check"></i> Đăng ký thành công. Hãy đăng nhập ngay.</div>
+        <?php endif; ?>
 
-            <?php if ($error !== ""): ?>
-                <div class="alert alert-error">
-                    <?= htmlspecialchars($error) ?>
-                </div>
-            <?php endif; ?>
+        <?php if ($error !== ''): ?>
+            <div class="alert alert-error"><i class="fa-solid fa-circle-exclamation"></i> <?= e($error) ?></div>
+        <?php endif; ?>
 
-            <form method="POST">
-                <div class="form-group">
-                    <label>Email</label>
-                    <input type="email" name="email" placeholder="example@gmail.com" required>
-                </div>
+        <form method="post">
+            <?= csrf_field() ?>
 
-                <div class="form-group">
-                    <label>Mật khẩu</label>
-                    <input type="password" name="password" placeholder="Nhập mật khẩu" required>
-                </div>
-
-                <button type="submit" class="auth-button">Đăng nhập</button>
-            </form>
-
-            <div class="auth-footer">
-                Chưa có tài khoản? <a href="register.php">Đăng ký ngay</a>
+            <div class="form-group">
+                <label for="loginEmail">Email</label>
+                <input type="email" id="loginEmail" name="email" class="form-control" placeholder="example@gmail.com" required autofocus>
             </div>
-        </div>
-    </div>
-</main>
 
-</body>
-</html>
+            <div class="form-group">
+                <label for="loginPass">Mật khẩu</label>
+                <input type="password" id="loginPass" name="password" class="form-control" placeholder="Nhập mật khẩu" required>
+            </div>
+
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:22px;">
+                <label class="form-check" style="margin-bottom:0;">
+                    <input type="checkbox" name="remember"> Ghi nhớ đăng nhập
+                </label>
+            </div>
+
+            <button type="submit" class="btn btn-accent btn-block btn-lg">Đăng nhập</button>
+        </form>
+
+        <div class="auth-footer">
+            Chưa có tài khoản? <a href="<?= url('register.php') ?>" style="color:var(--accent-dark);">Đăng ký ngay</a>
+        </div>
+
+    </div>
+</div>
+
+<?php require_once __DIR__ . '/includes/footer.php'; ?>

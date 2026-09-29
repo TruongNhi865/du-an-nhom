@@ -1,5 +1,5 @@
 <?php
-session_start();
+require_once __DIR__ . '/includes/db.php';
 
 $_SESSION = [];
 
@@ -16,7 +16,7 @@ if (ini_get("session.use_cookies")) {
     );
 }
 
-session_destroy();
+session_destroy(); //hủy toan bo phien lam viec
 
-header("Location: index.php");
+header("Location: /du-an-nhom/index.php");
 exit;
